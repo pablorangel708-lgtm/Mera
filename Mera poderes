@@ -11,11 +11,12 @@
 	  ou IDs de animação externos. Texturas: apenas as nativas "rbxasset://".
 
 	COMO ATIVAR OS 9 PODERES (tudo por botões, nada depende de teclado)
-	  Toque no botão flutuante 🌊 (arraste para mover). O painel abre.
-	  ALVO ......... toque num jogador da lista para selecionar (toque de novo p/ limpar).
-	  1 Water Prison  : com alvo selecionado, toque em "Water Prison". Toque de novo ou
+	  Toque no botão flutuante 🌊 (arraste para mover). A barra de poderes abre EMBAIXO da tela.
+	  ALVO ......... poderes que precisam de alvo (Prison e Whirlpool): toque no botão do poder e DEPOIS
+	                 toque no jogador no mundo (os jogadores ficam contornados). "✕ Cancelar" desiste.
+	  1 Water Prison  : toque em "Prison" e depois no jogador. Os controles de Hydro aparecem; use
 	                    "Libertar alvo" para soltar.
-	  2 Hydrokinesis  : com a prisão ativa, toque em "Hydrokinesis" para assumir o controle.
+	  2 Hydrokinesis  : com a prisão ativa, toque em "Hydrokinesis" ou use direto os botões de controle.
 	  3 Water Whip    : liga/desliga os dois chicotes. "Atacar / Puxar" faz a investida.
 	  4 Water Blast   : arma o poder. Escolha Projétil ou Jato. Projétil: 1 toque = 1 disparo.
 	                    Jato: segure DISPARAR. "Parar jatos" limpa tudo na hora.
@@ -23,7 +24,7 @@
 	                    mesma arma para dissolver), "Atacar" para golpear.
 	  6 Water Shield  : liga/desliga. ➖/➕ mudam o tamanho.
 	  7 Tidal Wave    : um toque invoca a onda (recarga configurável).
-	  8 Whirlpool     : precisa de alvo. ➖/➕ mudam a intensidade.
+	  8 Whirlpool     : toque no botão e depois no jogador. ➖/➕ mudam a intensidade.
 	  9 Water Aura    : liga/desliga (persiste após respawn).
 	  ⛔ Desativar poderes encerra tudo, exceto a aura. 💧 Desativar aura encerra a aura.
 
@@ -64,9 +65,9 @@
 	     visuais a partir dos dados recebidos (posição da esfera, estado, alvo).
 
 	TESTE E CORREÇÃO DE ERROS
-	  • Teste com "Start > 2 Players" no Studio para ter um alvo na lista.
+	  • Teste com "Start > 2 Players" no Studio para ter um alvo.
 	  • Abra View > Output. Erros internos aparecem como "[Mera] ...".
-	  • Sem alvo na lista? Só há outros jogadores se existirem; você não pode se selecionar.
+	  • Não seleciona o alvo? Toque direto no corpo do personagem. Precisa existir outro jogador no servidor; você não pode se selecionar.
 	  • FPS baixo: reduza CONFIG.Quality (0.3–0.6) ou Tidal.Columns.
 	  • Braços travados em pose estranha: toque ⛔ e depois 💧; ou respawn (restaura sozinho).
 	  • Se mudar de rig (R6/R15) em jogo, dê respawn; o script recaptura os ombros.
@@ -79,6 +80,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
 local Workspace = game:GetService("Workspace")
 local Debris = game:GetService("Debris")
 
@@ -436,6 +438,7 @@ end
 -- SISTEMA DE SELEÇÃO DE ALVOS
 -- ===================================================================================
 local Target = { player = nil }
+local Pick = { active = false, kind = nil } -- modo "toque no jogador alvo"
 local targetHighlight = new("Highlight", {
 	FillTransparency = 1, OutlineColor = C.Turquoise, OutlineTransparency = 0.25,
 	DepthMode = Enum.HighlightDepthMode.AlwaysOnTop, Enabled = false,
@@ -710,7 +713,7 @@ local function leaveControl(s)
 	Arms.sway = 0
 end
 
-function Prison.start()
+function Prison.start(p)
 	if Prison.sess then
 		return
 	end
@@ -718,12 +721,17 @@ function Prison.start()
 	if not (ch and isAlive(ch)) then
 		return
 	end
+	if p then
+		Target.set(p)
+	end
 	local tp, tch, thrp = Target.get()
 	if not tp then
-		UI.notify("Selecione um alvo na lista primeiro.")
+		UI.notify("Alvo inválido. Toque em um jogador.")
+		Target.releaseIfIdle()
 		return
 	end
 	if not tryUse("Prison") then
+		Target.releaseIfIdle()
 		return
 	end
 	local R = CONFIG.Prison.Radius
@@ -751,6 +759,7 @@ function Prison.start()
 		clearHold()
 		Arms.dyn = nil
 		Arms.sway = 0
+		Target.releaseIfIdle()
 		UI.refresh()
 	end)
 
@@ -1869,13 +1878,17 @@ end
 -- ===================================================================================
 local Whirl = { sess = nil, intensity = 1 }
 
-function Whirl.start()
+function Whirl.start(p)
 	if Whirl.sess then
 		return
 	end
+	if p then
+		Target.set(p)
+	end
 	local tp, tch, thrp = Target.get()
 	if not tp then
-		UI.notify("Selecione um alvo na lista primeiro.")
+		UI.notify("Alvo inválido. Toque em um jogador.")
+		Target.releaseIfIdle()
 		return
 	end
 	local s = newSession()
@@ -1889,6 +1902,7 @@ function Whirl.start()
 		if Whirl.sess == s then
 			Whirl.sess = nil
 		end
+		Target.releaseIfIdle()
 		UI.refresh()
 	end)
 	local disc = s.maid:Give(fxPart({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.2, 1, 1), Color = C.Ocean, Transparency = 1 }))
@@ -2081,6 +2095,9 @@ end
 -- ENCERRAMENTO / DESATIVAÇÃO GERAL
 -- ===================================================================================
 local function stopAllPowers(instant)
+	if Pick.cancel then
+		Pick.cancel(true)
+	end
 	Prison.stop(instant)
 	Whip.stop(instant)
 	Blast.disarm()
@@ -2098,7 +2115,185 @@ local function stopAllPowers(instant)
 end
 
 -- ===================================================================================
--- INTERFACE (GUI mobile)
+-- SELEÇÃO DE ALVO POR TOQUE (botão do poder → toque no jogador no mundo)
+-- ===================================================================================
+function Target.releaseIfIdle()
+	if not Prison.sess and not Whirl.sess then
+		Target.set(nil)
+	end
+end
+
+local pickHighlights, pickToken = {}, 0
+local pickBanner, pickBannerText -- criados junto com a GUI
+
+local function playerFromPart(part)
+	local inst = part
+	while inst and inst ~= Workspace do
+		if inst:IsA("Model") then
+			local p = Players:GetPlayerFromCharacter(inst)
+			if p then
+				return p
+			end
+		end
+		inst = inst.Parent
+	end
+	return nil
+end
+
+-- Descobre qual jogador foi tocado: 1) raio exato na tela; 2) proximidade na tela (tolerante a dedo grosso)
+local function pickPlayerAt(pos)
+	local cam = Workspace.CurrentCamera
+	if not cam then
+		return nil
+	end
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { fxFolder, player.Character }
+	params.IgnoreWater = true
+	local function cast(ray)
+		local hit = Workspace:Raycast(ray.Origin, ray.Direction * 800, params)
+		if hit then
+			local p = playerFromPart(hit.Instance)
+			if p and p ~= player then
+				return p
+			end
+		end
+		return nil
+	end
+	local found = cast(cam:ScreenPointToRay(pos.X, pos.Y)) or cast(cam:ViewportPointToRay(pos.X, pos.Y))
+	if found then
+		return found
+	end
+	local inset = GuiService:GetGuiInset()
+	local tapA = Vector2.new(pos.X, pos.Y)
+	local tapB = tapA + inset
+	local best, bestD = nil, 80
+	for _, other in ipairs(Players:GetPlayers()) do
+		local ch = other ~= player and other.Character
+		local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			for _, off in ipairs({ 0, 1.8, -1.5 }) do
+				local sp, on = cam:WorldToViewportPoint(hrp.Position + Vector3.new(0, off, 0))
+				if on then
+					local v2 = Vector2.new(sp.X, sp.Y)
+					local d = math.min((v2 - tapA).Magnitude, (v2 - tapB).Magnitude)
+					if d < bestD then
+						best, bestD = other, d
+					end
+				end
+			end
+		end
+	end
+	return best
+end
+
+function Pick.cancel(silent)
+	if not Pick.active then
+		return
+	end
+	Pick.active, Pick.kind = false, nil
+	pickToken = pickToken + 1
+	for _, h in ipairs(pickHighlights) do
+		h:Destroy()
+	end
+	table.clear(pickHighlights)
+	if pickBanner then
+		pickBanner.Visible = false
+	end
+	if not silent then
+		UI.notify("Seleção de alvo cancelada.")
+	end
+	UI.refresh()
+end
+
+local PICK_TITLES = { prison = "Water Prison", whirl = "Whirlpool" }
+
+function Pick.begin(kind)
+	if not isAlive(player.Character) then
+		return
+	end
+	local busy = (kind == "prison" and Prison.sess) or (kind == "whirl" and Whirl.sess)
+	if busy then
+		UI.notify("Aguarde o poder atual terminar.")
+		return
+	end
+	local list = {}
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+			table.insert(list, p)
+		end
+	end
+	if #list == 0 then
+		UI.notify("Não há outros jogadores disponíveis.")
+		return
+	end
+	Pick.cancel(true)
+	Pick.active, Pick.kind = true, kind
+	pickToken = pickToken + 1
+	local my = pickToken
+	for _, p in ipairs(list) do
+		table.insert(pickHighlights, new("Highlight", {
+			Adornee = p.Character, FillColor = C.Turquoise, FillTransparency = 0.88, OutlineColor = C.Light,
+			OutlineTransparency = 0.25, DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
+		}, fxFolder))
+	end
+	if pickBanner then
+		pickBannerText.Text = "🎯 " .. PICK_TITLES[kind] .. ": toque no jogador alvo"
+		pickBanner.Visible = true
+	end
+	UI.notify("Toque no jogador que vai receber o poder.")
+	task.delay(25, function()
+		if Pick.active and pickToken == my then
+			Pick.cancel()
+		end
+	end)
+	UI.refresh()
+end
+
+local function finishPick(p)
+	local kind = Pick.kind
+	Pick.cancel(true)
+	if kind == "prison" then
+		Prison.start(p)
+		if Prison.sess then
+			UI.focus("hydro")
+		end
+	elseif kind == "whirl" then
+		Whirl.start(p)
+		if Whirl.sess then
+			UI.focus("whirl")
+		end
+	end
+end
+
+local function onWorldTap(pos)
+	if not Pick.active then
+		return
+	end
+	local p = pickPlayerAt(pos)
+	if not p then
+		UI.notify("Toque direto no jogador alvo.")
+		return
+	end
+	finishPick(p)
+end
+
+connections:Give(UserInputService.TouchTapInWorld:Connect(function(pos, processedByUI)
+	if not processedByUI then
+		onWorldTap(pos)
+	end
+end))
+connections:Give(UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then
+		return
+	end
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		onWorldTap(Vector2.new(input.Position.X, input.Position.Y))
+	end
+end))
+
+-- ===================================================================================
+-- INTERFACE (GUI mobile — barra de poderes embaixo da tela)
 -- ===================================================================================
 do
 	local oldGui = playerGui:FindFirstChild("MeraHydrokinesisGui")
@@ -2110,6 +2305,9 @@ local gui = new("ScreenGui", {
 	Name = "MeraHydrokinesisGui", ResetOnSpawn = false, IgnoreGuiInset = true,
 	ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 60,
 }, playerGui)
+
+local GOLD = Color3.fromRGB(255, 214, 102)
+local OFFDOT = Color3.fromRGB(60, 80, 110)
 
 local function viewport()
 	local v = gui.AbsoluteSize
@@ -2169,6 +2367,9 @@ end
 local function btn(parent, text, cb, h)
 	local b = new("TextButton", { Text = text, Size = UDim2.new(1, 0, 0, h or 38), LayoutOrder = nextLO(), TextWrapped = true }, parent)
 	styleBtn(b)
+	if (h or 38) <= 40 then
+		b.TextSize = 12
+	end
 	if cb then
 		b.Activated:Connect(cb)
 	end
@@ -2206,10 +2407,61 @@ local function grid(parent, cols, h)
 	return g
 end
 
+local function hint(parent, text)
+	return new("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = 1, TextWrapped = true, Text = text, TextColor3 = C.Light,
+		Font = Enum.Font.Gotham, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = nextLO(),
+	}, parent)
+end
+
+-- Aviso rápido (toast)
+local toast = new("TextLabel", {
+	Name = "Toast", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 62), Size = UDim2.new(0.8, 0, 0, 26),
+	BackgroundColor3 = C.Deep, BackgroundTransparency = 1, Text = "", TextTransparency = 1, TextColor3 = C.Foam,
+	Font = Enum.Font.GothamMedium, TextSize = 13, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 30,
+}, gui)
+corner(toast, 13)
+new("UISizeConstraint", { MaxSize = Vector2.new(380, 26) }, toast)
+local toastToken = 0
+function UI.notify(msg)
+	toastToken = toastToken + 1
+	local my = toastToken
+	toast.Text = msg
+	toast.TextTransparency = 0
+	toast.BackgroundTransparency = 0.25
+	task.delay(3, function()
+		if toastToken == my and toast.Parent then
+			TweenService:Create(toast, TweenInfo.new(0.5), { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
+		end
+	end)
+end
+
+-- Faixa de "toque no jogador alvo"
+pickBanner = new("Frame", {
+	Name = "PickBanner", Visible = false, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 12),
+	Size = UDim2.new(0.62, 0, 0, 42), BackgroundColor3 = C.Deep, BackgroundTransparency = 0.1, BorderSizePixel = 0, ZIndex = 25,
+}, gui)
+corner(pickBanner, 12)
+new("UISizeConstraint", { MinSize = Vector2.new(230, 42), MaxSize = Vector2.new(380, 42) }, pickBanner)
+local bannerStroke = stroke(pickBanner, GOLD, 2, 0.1)
+TweenService:Create(bannerStroke, TweenInfo.new(0.9, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Transparency = 0.7 }):Play()
+pickBannerText = new("TextLabel", {
+	Position = UDim2.fromOffset(10, 0), Size = UDim2.new(1, -100, 1, 0), BackgroundTransparency = 1, Text = "",
+	TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = C.Foam, Font = Enum.Font.GothamBold, TextSize = 12, ZIndex = 26,
+}, pickBanner)
+local bannerCancel = new("TextButton", {
+	AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -6, 0.5, 0), Size = UDim2.fromOffset(84, 30), Text = "✕ Cancelar", TextSize = 12, ZIndex = 26,
+}, pickBanner)
+styleBtn(bannerCancel)
+bannerCancel.TextSize = 12
+bannerCancel.Activated:Connect(function()
+	Pick.cancel()
+end)
+
 -- Botão flutuante 🌊 (arrastável)
 local vp0 = viewport()
 local float = new("TextButton", {
-	Name = "MeraFloat", Size = UDim2.fromOffset(56, 56), Position = UDim2.fromOffset(vp0.X - 70, vp0.Y * 0.38),
+	Name = "MeraFloat", Size = UDim2.fromOffset(56, 56), Position = UDim2.fromOffset(vp0.X - 70, vp0.Y * 0.4),
 	Text = "🌊", TextSize = 28, Font = Enum.Font.GothamBold, BackgroundColor3 = C.Deep, AutoButtonColor = false,
 	BorderSizePixel = 0, ZIndex = 10,
 }, gui)
@@ -2217,214 +2469,184 @@ corner(float, 28)
 local floatStroke = stroke(float, C.Turquoise, 2.5, 0.1)
 TweenService:Create(floatStroke, TweenInfo.new(1.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Transparency = 0.65 }):Play()
 
--- Painel
-local panelScale = new("UIScale", { Scale = 0.9 })
-local panel = new("CanvasGroup", {
-	Name = "Panel", Visible = false, BackgroundColor3 = C.Deep, BackgroundTransparency = 0.06, BorderSizePixel = 0,
-	GroupTransparency = 1, ZIndex = 5, Size = UDim2.fromOffset(318, 480),
+-- Dock inferior
+local dock = new("Frame", {
+	Name = "Dock", Visible = false, AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, 340),
+	Size = UDim2.fromOffset(500, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = Color3.new(1, 1, 1),
+	BackgroundTransparency = 0.06, BorderSizePixel = 0, ZIndex = 5,
 }, gui)
-panelScale.Parent = panel
-corner(panel, 16)
-stroke(panel, C.Turquoise, 2, 0.15)
-new("UIGradient", { Color = ColorSequence.new(C.Navy, C.Deep), Rotation = 90 }, panel)
+corner(dock, 16)
+stroke(dock, C.Turquoise, 2, 0.15)
+new("UIGradient", { Color = ColorSequence.new(C.Navy, C.Deep), Rotation = 90 }, dock)
+new("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 8) }, dock)
+new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder, HorizontalAlignment = Enum.HorizontalAlignment.Center }, dock)
 
-local header = new("Frame", { Size = UDim2.new(1, 0, 0, 38), BackgroundTransparency = 1 }, panel)
+local header = new("Frame", { Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = 1, LayoutOrder = 1 }, dock)
 new("TextLabel", {
-	Size = UDim2.new(1, -50, 1, 0), Position = UDim2.fromOffset(12, 0), BackgroundTransparency = 1, Text = "🌊 MERA · Hidrocinese",
-	TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = C.Light, Font = Enum.Font.GothamBold, TextSize = 16,
+	Size = UDim2.fromOffset(74, 30), BackgroundTransparency = 1, Text = "🌊 MERA", TextXAlignment = Enum.TextXAlignment.Left,
+	TextColor3 = C.Light, Font = Enum.Font.GothamBold, TextSize = 15,
 }, header)
-local closeBtn = new("TextButton", {
-	Size = UDim2.fromOffset(30, 26), Position = UDim2.new(1, -38, 0, 6), Text = "✕", TextSize = 14,
+local statusLbl = new("TextLabel", {
+	Position = UDim2.fromOffset(76, 0), Size = UDim2.new(1, -150, 1, 0), BackgroundTransparency = 1, Text = "", TextWrapped = true,
+	TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center, TextColor3 = C.Turquoise,
+	Font = Enum.Font.GothamMedium, TextSize = 11, TextTruncate = Enum.TextTruncate.AtEnd,
 }, header)
+local stopAllBtn = new("TextButton", { Position = UDim2.new(1, -72, 0, 2), Size = UDim2.fromOffset(34, 26), Text = "⛔", TextSize = 14 }, header)
+styleBtn(stopAllBtn)
+local closeBtn = new("TextButton", { Position = UDim2.new(1, -34, 0, 2), Size = UDim2.fromOffset(34, 26), Text = "✕", TextSize = 14 }, header)
 styleBtn(closeBtn)
 
-local statusF = new("Frame", { Size = UDim2.new(1, 0, 0, 38), Position = UDim2.fromOffset(0, 38), BackgroundTransparency = 1 }, panel)
-local activeLbl = new("TextLabel", {
-	Size = UDim2.new(1, -20, 0, 18), Position = UDim2.fromOffset(12, 0), BackgroundTransparency = 1, Text = "Ativo: —",
-	TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = C.Turquoise, Font = Enum.Font.GothamMedium, TextSize = 12, TextTruncate = Enum.TextTruncate.AtEnd,
-}, statusF)
-local targetLbl = new("TextLabel", {
-	Size = UDim2.new(1, -20, 0, 18), Position = UDim2.fromOffset(12, 18), BackgroundTransparency = 1, Text = "Alvo: —",
-	TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = C.Light, Font = Enum.Font.GothamMedium, TextSize = 12, TextTruncate = Enum.TextTruncate.AtEnd,
-}, statusF)
+-- Área de controles do poder em foco
+local ctlScroll = new("ScrollingFrame", {
+	Size = UDim2.new(1, 0, 0, 120), Visible = false, BackgroundColor3 = C.Deep, BackgroundTransparency = 0.45, BorderSizePixel = 0,
+	ScrollBarThickness = 4, ScrollBarImageColor3 = C.Turquoise, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	ScrollingDirection = Enum.ScrollingDirection.Y, LayoutOrder = 2,
+}, dock)
+corner(ctlScroll, 10)
+new("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 8), PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6) }, ctlScroll)
+new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, ctlScroll)
 
-local scroll = new("ScrollingFrame", {
-	Position = UDim2.fromOffset(0, 78), Size = UDim2.new(1, 0, 1, -102), BackgroundTransparency = 1, BorderSizePixel = 0,
-	ScrollBarThickness = 4, ScrollBarImageColor3 = C.Turquoise, CanvasSize = UDim2.new(),
-	AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollingDirection = Enum.ScrollingDirection.Y,
-}, panel)
-new("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 12), PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 10) }, scroll)
-new("UIListLayout", { Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder }, scroll)
+-- Faixa de botões dos poderes (rola para o lado)
+local strip = new("ScrollingFrame", {
+	Size = UDim2.new(1, 0, 0, 66), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = C.Turquoise,
+	CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.X, ScrollingDirection = Enum.ScrollingDirection.X, LayoutOrder = 3,
+}, dock)
+new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder, VerticalAlignment = Enum.VerticalAlignment.Top }, strip)
 
-local toast = new("TextLabel", {
-	Size = UDim2.new(1, -16, 0, 22), Position = UDim2.new(0, 8, 1, -24), BackgroundTransparency = 1, Text = "", TextTransparency = 1,
-	TextColor3 = C.Foam, Font = Enum.Font.Gotham, TextSize = 12, TextTruncate = Enum.TextTruncate.AtEnd,
-}, panel)
-local toastToken = 0
-function UI.notify(msg)
-	toastToken = toastToken + 1
-	local my = toastToken
-	toast.Text = msg
-	toast.TextTransparency = 0
-	task.delay(3, function()
-		if toastToken == my and toast.Parent then
-			TweenService:Create(toast, TweenInfo.new(0.5), { TextTransparency = 1 }):Play()
-		end
-	end)
-end
-
-local function section(text)
-	return new("TextLabel", {
-		Size = UDim2.new(1, 0, 0, 18), BackgroundTransparency = 1, Text = text, TextXAlignment = Enum.TextXAlignment.Left,
-		TextColor3 = C.Turquoise, Font = Enum.Font.GothamBold, TextSize = 12, LayoutOrder = nextLO(),
-	}, scroll)
-end
-
--- Lista de alvos
-section("ALVO (toque para selecionar)")
-local targetList = new("Frame", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = nextLO() }, scroll)
-new("UIListLayout", { Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder }, targetList)
-local emptyLbl = new("TextLabel", {
-	Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1, Text = "Nenhum outro jogador no servidor.",
-	TextColor3 = C.Light, Font = Enum.Font.Gotham, TextSize = 12, LayoutOrder = 0,
-}, targetList)
-local rows = {}
-local function addRow(p)
-	if p == player or rows[p] then
-		return
-	end
-	local b = new("TextButton", {
-		Size = UDim2.new(1, 0, 0, 32), Text = "👤 " .. p.DisplayName .. " (@" .. p.Name .. ")", TextSize = 13,
-		TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, LayoutOrder = nextLO(),
-	}, targetList)
-	new("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 8) }, b)
+local Btns = {}
+local function stripButton(key, icon, name, onPress)
+	local b = new("TextButton", { Size = UDim2.fromOffset(68, 58), Text = "", LayoutOrder = nextLO() }, strip)
 	styleBtn(b)
-	b.TextSize = 13
-	b.Activated:Connect(function()
-		if Target.player == p then
-			Target.set(nil)
-		else
-			Target.set(p)
-		end
-	end)
-	rows[p] = b
-	emptyLbl.Visible = false
-end
-local function removeRow(p)
-	local b = rows[p]
-	if b then
-		b:Destroy()
-		rows[p] = nil
-	end
-	emptyLbl.Visible = next(rows) == nil
-end
-btn(scroll, "✖ Limpar alvo", function()
-	Target.set(nil)
-end, 32)
-
--- Poderes
-section("PODERES")
-local PowerUI = {}
-local function powerRow(key, icon, title, onPress)
-	local holder = new("Frame", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = nextLO() }, scroll)
-	new("UIListLayout", { Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder }, holder)
-	local b = new("TextButton", { Size = UDim2.new(1, 0, 0, 42), Text = "", LayoutOrder = 1 }, holder)
-	styleBtn(b)
-	new("TextLabel", { BackgroundTransparency = 1, Size = UDim2.fromOffset(40, 42), Text = icon, TextSize = 22, Font = Enum.Font.GothamBold }, b)
 	new("TextLabel", {
-		BackgroundTransparency = 1, Position = UDim2.fromOffset(40, 0), Size = UDim2.new(1, -70, 1, 0), Text = title,
-		TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = C.Foam, Font = Enum.Font.GothamMedium, TextSize = 14,
+		BackgroundTransparency = 1, Position = UDim2.fromOffset(0, 3), Size = UDim2.new(1, 0, 0, 26), Text = icon, TextSize = 22,
+		Font = Enum.Font.GothamBold, TextColor3 = C.Foam,
+	}, b)
+	new("TextLabel", {
+		BackgroundTransparency = 1, Position = UDim2.fromOffset(2, 29), Size = UDim2.new(1, -4, 0, 24), Text = name, TextSize = 10,
+		Font = Enum.Font.GothamMedium, TextColor3 = C.Foam, TextWrapped = true,
 	}, b)
 	local dot = new("Frame", {
-		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(12, 12),
-		BackgroundColor3 = Color3.fromRGB(60, 80, 110), BorderSizePixel = 0,
+		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -5, 0, 5), Size = UDim2.fromOffset(8, 8), BackgroundColor3 = OFFDOT, BorderSizePixel = 0,
 	}, b)
-	corner(dot, 6)
-	local sub = new("Frame", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Visible = false, LayoutOrder = 2 }, holder)
-	new("UIListLayout", { Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder }, sub)
-	new("UIPadding", { PaddingLeft = UDim.new(0, 4) }, sub)
+	corner(dot, 4)
 	b.Activated:Connect(onPress)
-	PowerUI[key] = { btn = b, dot = dot, sub = sub }
-	return sub
+	Btns[key] = { btn = b, dot = dot, stroke = b:FindFirstChildOfClass("UIStroke") }
+	return b
 end
 
--- 1 Water Prison
-local subPrison = powerRow("prison", "🫧", "Water Prison", function()
-	if Prison.sess then
-		Prison.stop(false)
-	else
-		Prison.start()
-	end
-end)
-btn(subPrison, "🔓 Libertar alvo", function()
-	Prison.stop(false)
-end, 34)
-new("TextLabel", {
-	Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = 1, TextWrapped = true, Text = "Toque em Hydrokinesis para controlar a esfera.",
-	TextColor3 = C.Light, Font = Enum.Font.Gotham, TextSize = 11, LayoutOrder = nextLO(),
-}, subPrison)
+-- Páginas de controles
+local Pages = {}
+local focusKey = nil
+local function newPage(key)
+	local f = new("Frame", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Visible = false, LayoutOrder = nextLO() }, ctlScroll)
+	new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, f)
+	Pages[key] = f
+	return f
+end
 
--- 2 Hydrokinesis
-local subHydro = powerRow("hydro", "🌀", "Hydrokinesis (controlar)", function()
+function UI.focus(key)
+	focusKey = key
+	UI.refresh()
+end
+
+local function ensureControl()
 	local s = Prison.sess
-	if s and s.mode == "control" then
-		Prison.endControl()
-	else
-		Prison.beginControl()
+	if not s or s.closing then
+		UI.notify("Ative o Water Prison primeiro.")
+		return false
 	end
-end)
-local g1 = grid(subHydro, 3, 46)
-holdBtn(g1, "⬆\nSubir", function() Hold.up = true end, function() Hold.up = false end)
-holdBtn(g1, "⬇\nDescer", function() Hold.down = true end, function() Hold.down = false end)
-btn(g1, "⏹\nParar", function() Prison.haltMotion() end)
-holdBtn(g1, "⬅\nEsq.", function() Hold.left = true end, function() Hold.left = false end)
-holdBtn(g1, "➡\nDir.", function() Hold.right = true end, function() Hold.right = false end)
-local hoverBtn = btn(g1, "🛰\nSuspender", function() Prison.toggleHover() end)
-holdBtn(g1, "⤴\nAproximar", function() Hold.near = true end, function() Hold.near = false end)
-holdBtn(g1, "⤵\nAfastar", function() Hold.far = true end, function() Hold.far = false end)
-local carryBtn = btn(g1, "🤲\nCarregar", function() Prison.toggleCarry() end)
-local g2 = grid(subHydro, 2, 40)
-btn(g2, "🔓 Libertar", function() Prison.stop(false) end)
-btn(g2, "✋ Encerrar controle", function() Prison.endControl() end)
+	if s.mode ~= "control" then
+		return Prison.beginControl()
+	end
+	return true
+end
+local function holdCtl(parent, text, key)
+	return holdBtn(parent, text, function()
+		if ensureControl() then
+			Hold[key] = true
+		end
+	end, function()
+		Hold[key] = false
+	end)
+end
 
--- 3 Water Whip
-local subWhip = powerRow("whip", "🌀", "Water Whip", function()
-	if Whip.sess then
-		Whip.stop(false)
-	else
-		Whip.start()
-	end
-end)
-btn(subWhip, "💦 Atacar / Puxar", function() Whip.attack() end, 44)
+-- Prison
+local pgPrison = newPage("prison")
+hint(pgPrison, "Toque em Prison e depois no jogador alvo. Os controles da esfera ficam em Hydro.")
+btn(pgPrison, "🔓 Libertar alvo", function()
+	Prison.stop(false)
+end, 36)
 
--- 4 Water Blast
-local subBlast = powerRow("blast", "💥", "Water Blast", function()
-	if Blast.armed then
-		Blast.disarm()
-	else
-		Blast.arm()
+-- Hydrokinesis
+local pgHydro = newPage("hydro")
+local hydroHint = hint(pgHydro, "Ative o Prison primeiro (botão Prison → toque no jogador).")
+local gH = grid(pgHydro, 4, 40)
+holdCtl(gH, "⬆ Subir", "up")
+holdCtl(gH, "⬇ Descer", "down")
+holdCtl(gH, "⬅ Esq.", "left")
+holdCtl(gH, "➡ Dir.", "right")
+holdCtl(gH, "⤴ Aproximar", "near")
+holdCtl(gH, "⤵ Afastar", "far")
+btn(gH, "⏹ Parar", function()
+	Prison.haltMotion()
+end)
+local hoverBtn = btn(gH, "🛰 Suspender", function()
+	if ensureControl() then
+		Prison.toggleHover()
 	end
 end)
-local gBlast = grid(subBlast, 2, 36)
-local boltBtn = btn(gBlast, "💧 Projétil", function() Blast.setMode("bolt") end)
-local jetBtn = btn(gBlast, "🌊 Jato", function() Blast.setMode("jet") end)
-holdBtn(subBlast, "💥 DISPARAR\n(segure p/ jato)", function() Blast.fire() end, function() Blast.setStream(false) end, 52)
-btn(subBlast, "⏹ Parar jatos", function() Blast.stopJets() end, 34)
+local carryBtn = btn(gH, "🤲 Carregar", function()
+	if ensureControl() then
+		Prison.toggleCarry()
+	end
+end)
+btn(gH, "🔓 Libertar", function()
+	Prison.stop(false)
+end)
+btn(gH, "✋ Soltar controle", function()
+	Prison.endControl()
+end)
 
--- 5 Water Constructs
-local subCons = powerRow("constructs", "⚔", "Water Constructs", function()
-	if Constructs.armed then
-		Constructs.disarm(false)
-	else
-		Constructs.arm()
-	end
+-- Whip
+local pgWhip = newPage("whip")
+btn(pgWhip, "💦 Atacar / Puxar", function()
+	Whip.attack()
+end, 44)
+
+-- Blast
+local pgBlast = newPage("blast")
+local gB = grid(pgBlast, 2, 36)
+local boltBtn = btn(gB, "💧 Projétil", function()
+	Blast.setMode("bolt")
 end)
-local gW = grid(subCons, 3, 40)
-local swordBtn = btn(gW, "⚔ Espada", function() Constructs.equip("sword") end)
-local spearBtn = btn(gW, "🗡 Lança", function() Constructs.equip("spear") end)
-local tridentBtn = btn(gW, "🔱 Tridente", function() Constructs.equip("trident") end)
-local gW2 = grid(subCons, 2, 38)
-btn(gW2, "💢 Atacar", function() Constructs.attack() end)
+local jetBtn = btn(gB, "🌊 Jato", function()
+	Blast.setMode("jet")
+end)
+holdBtn(pgBlast, "💥 DISPARAR (segure p/ jato)", function()
+	Blast.fire()
+end, function()
+	Blast.setStream(false)
+end, 46)
+btn(pgBlast, "⏹ Parar jatos", function()
+	Blast.stopJets()
+end, 34)
+
+-- Constructs
+local pgCons = newPage("constructs")
+local gW = grid(pgCons, 3, 40)
+local swordBtn = btn(gW, "⚔ Espada", function()
+	Constructs.equip("sword")
+end)
+local spearBtn = btn(gW, "🗡 Lança", function()
+	Constructs.equip("spear")
+end)
+local tridentBtn = btn(gW, "🔱 Tridente", function()
+	Constructs.equip("trident")
+end)
+local gW2 = grid(pgCons, 2, 38)
+btn(gW2, "💢 Atacar", function()
+	Constructs.attack()
+end)
 btn(gW2, "🫧 Dissolver", function()
 	local s = Constructs.sess
 	if s then
@@ -2434,56 +2656,158 @@ btn(gW2, "🫧 Dissolver", function()
 	end
 end)
 
--- 6 Water Shield
-local subShield = powerRow("shield", "🛡", "Water Shield", function()
-	if Shield.sess then
-		Shield.stop(false)
+-- Shield
+local pgShield = newPage("shield")
+local gS = grid(pgShield, 2, 38)
+btn(gS, "➖ Menor", function()
+	Shield.resize(-0.2)
+end)
+btn(gS, "➕ Maior", function()
+	Shield.resize(0.2)
+end)
+
+-- Whirlpool
+local pgWhirl = newPage("whirl")
+local gR = grid(pgWhirl, 2, 38)
+btn(gR, "➖ Intensidade", function()
+	Whirl.adjust(-0.2)
+end)
+btn(gR, "➕ Intensidade", function()
+	Whirl.adjust(0.2)
+end)
+btn(pgWhirl, "🔓 Encerrar redemoinho", function()
+	Whirl.stop(false)
+end, 36)
+
+-- Aura
+local pgAura = newPage("aura")
+btn(pgAura, "🚫 Desativar aura", function()
+	Aura.stop(false)
+end, 36)
+
+-- Comportamento dos botões da faixa
+local function pressPower(key, isOn, start, stop)
+	if isOn() then
+		if focusKey ~= key and Pages[key] then
+			UI.focus(key)
+		else
+			stop()
+			UI.focus(nil)
+		end
 	else
+		start()
+		UI.focus(key)
+	end
+end
+
+-- Poderes que precisam de alvo: 1º toque no botão, 2º toque no jogador
+local function pressTargeted(key, kind, getSess, stop)
+	if Pick.active and Pick.kind == kind then
+		Pick.cancel()
+	elseif getSess() then
+		if focusKey ~= key then
+			UI.focus(key)
+		else
+			stop()
+			UI.focus(nil)
+		end
+	else
+		Pick.begin(kind)
+		UI.focus(nil)
+	end
+end
+
+local shutdown -- definido na seção de encerramento
+
+stripButton("prison", "🫧", "Prison", function()
+	pressTargeted("prison", "prison", function()
+		return Prison.sess
+	end, function()
+		Prison.stop(false)
+	end)
+end)
+stripButton("hydro", "🌀", "Hydro", function()
+	pressPower("hydro", function()
+		local s = Prison.sess
+		return s ~= nil and s.mode == "control" and not s.closing
+	end, function()
+		Prison.beginControl()
+	end, function()
+		Prison.endControl()
+	end)
+end)
+stripButton("whip", "〰", "Whip", function()
+	pressPower("whip", function()
+		return Whip.sess ~= nil
+	end, function()
+		Whip.start()
+	end, function()
+		Whip.stop(false)
+	end)
+end)
+stripButton("blast", "💥", "Blast", function()
+	pressPower("blast", function()
+		return Blast.armed
+	end, function()
+		Blast.arm()
+	end, function()
+		Blast.disarm()
+	end)
+end)
+stripButton("constructs", "⚔", "Constructs", function()
+	pressPower("constructs", function()
+		return Constructs.armed
+	end, function()
+		Constructs.arm()
+	end, function()
+		Constructs.disarm(false)
+	end)
+end)
+stripButton("shield", "🛡", "Shield", function()
+	pressPower("shield", function()
+		return Shield.sess ~= nil
+	end, function()
 		Shield.start()
-	end
+	end, function()
+		Shield.stop(false)
+	end)
 end)
-local gS = grid(subShield, 2, 36)
-btn(gS, "➖ Menor", function() Shield.resize(-0.2) end)
-btn(gS, "➕ Maior", function() Shield.resize(0.2) end)
-
--- 7 Tidal Wave
-powerRow("tidal", "🌊", "Tidal Wave", function() Tidal.cast() end)
-
--- 8 Whirlpool
-local subWhirl = powerRow("whirl", "🌪", "Whirlpool", function()
-	if Whirl.sess then
+stripButton("tidal", "🌊", "Tidal Wave", function()
+	Tidal.cast()
+	UI.focus(nil)
+end)
+stripButton("whirl", "🌪", "Whirlpool", function()
+	pressTargeted("whirl", "whirl", function()
+		return Whirl.sess
+	end, function()
 		Whirl.stop(false)
-	else
-		Whirl.start()
-	end
+	end)
 end)
-local gR = grid(subWhirl, 2, 36)
-btn(gR, "➖ Intensidade", function() Whirl.adjust(-0.2) end)
-btn(gR, "➕ Intensidade", function() Whirl.adjust(0.2) end)
-
--- 9 Water Aura
-local subAura = powerRow("aura", "✨", "Water Aura", function()
-	if Aura.sess then
-		Aura.stop(false)
-	else
+stripButton("aura", "✨", "Aura", function()
+	pressPower("aura", function()
+		return Aura.sess ~= nil
+	end, function()
 		Aura.start()
-	end
+	end, function()
+		Aura.stop(false)
+	end)
 end)
-btn(subAura, "🚫 Desativar aura", function() Aura.stop(false) end, 34)
-
--- Gerais
-section("GERAL")
-local gG = grid(scroll, 2, 40)
-btn(gG, "⛔ Desativar poderes", function()
+stripButton("g_stop", "⛔", "Parar poderes", function()
 	stopAllPowers(false)
+	UI.focus(nil)
 	UI.notify("Poderes desativados (a aura continua).")
 end)
-btn(gG, "💧 Desativar aura", function() Aura.stop(false) end)
-
-local shutdown -- definido abaixo
-btn(scroll, "⏻ Encerrar sistema", function()
+stripButton("g_aura", "💧", "Aura off", function()
+	Aura.stop(false)
+end)
+stripButton("g_exit", "⏻", "Encerrar", function()
 	shutdown()
-end, 32)
+end)
+stopAllBtn.Activated:Connect(function()
+	stopAllPowers(false)
+	UI.focus(nil)
+	UI.notify("Poderes desativados (a aura continua).")
+end)
 
 -- Atualização geral da interface
 function UI.refresh()
@@ -2491,40 +2815,46 @@ function UI.refresh()
 		return
 	end
 	local names = {}
-	local function set(key, on, label, showSub)
-		local u = PowerUI[key]
+	local function set(key, on, label, pending)
+		local u = Btns[key]
 		if not u then
 			return
 		end
-		setBtnState(u.btn, on)
-		u.dot.BackgroundColor3 = on and C.Turquoise or Color3.fromRGB(60, 80, 110)
-		u.sub.Visible = showSub and true or false
+		setBtnState(u.btn, on or pending == true)
+		u.dot.BackgroundColor3 = pending and GOLD or (on and C.Turquoise or OFFDOT)
 		if on then
 			table.insert(names, label)
 		end
 	end
 	local ps = Prison.sess
 	local ctl = ps ~= nil and ps.mode == "control" and not ps.closing
-	set("prison", ps ~= nil, "Prison", ps ~= nil)
-	set("hydro", ctl, "Hydrokinesis", ctl)
-	set("whip", Whip.sess ~= nil, "Whip", Whip.sess ~= nil)
-	set("blast", Blast.armed, "Blast", Blast.armed)
-	set("constructs", Constructs.armed, "Constructs", Constructs.armed)
-	set("shield", Shield.sess ~= nil, "Shield", Shield.sess ~= nil)
-	set("tidal", Tidal.busy, "Tidal Wave", false)
-	set("whirl", Whirl.sess ~= nil, "Whirlpool", Whirl.sess ~= nil)
-	set("aura", Aura.sess ~= nil, "Aura", Aura.sess ~= nil)
-	activeLbl.Text = "Ativo: " .. (#names > 0 and table.concat(names, " · ") or "—")
+	set("prison", ps ~= nil, "Prison", Pick.active and Pick.kind == "prison")
+	set("hydro", ctl, "Hydrokinesis")
+	set("whip", Whip.sess ~= nil, "Whip")
+	set("blast", Blast.armed, "Blast")
+	set("constructs", Constructs.armed, "Constructs")
+	set("shield", Shield.sess ~= nil, "Shield")
+	set("tidal", Tidal.busy, "Tidal Wave")
+	set("whirl", Whirl.sess ~= nil, "Whirlpool", Pick.active and Pick.kind == "whirl")
+	set("aura", Aura.sess ~= nil, "Aura")
+	for key, u in pairs(Btns) do
+		local focused = (focusKey == key)
+		u.stroke.Thickness = focused and 2.6 or 1.4
+		u.stroke.Color = focused and C.Foam or C.Turquoise
+	end
 	local tp = Target.player
-	if tp then
-		local ok = Target.get() ~= nil
-		targetLbl.Text = "Alvo: " .. tp.DisplayName .. (ok and "" or " (indisponível)")
-	else
-		targetLbl.Text = "Alvo: —"
+	local tname = "—"
+	if Pick.active then
+		tname = "toque no jogador…"
+	elseif tp then
+		tname = tp.DisplayName .. (Target.get() and "" or " (indisponível)")
 	end
-	for p, b in pairs(rows) do
-		setBtnState(b, Target.player == p)
+	statusLbl.Text = "Ativo: " .. (#names > 0 and table.concat(names, " · ") or "—") .. "\nAlvo: " .. tname
+	for k, f in pairs(Pages) do
+		f.Visible = (k == focusKey)
 	end
+	ctlScroll.Visible = dock.Visible and focusKey ~= nil and Pages[focusKey] ~= nil
+	hydroHint.Visible = Prison.sess == nil
 	setBtnState(hoverBtn, ps ~= nil and ps.hover == true)
 	setBtnState(carryBtn, ps ~= nil and ps.carry == true)
 	setBtnState(boltBtn, Blast.mode == "bolt")
@@ -2535,46 +2865,33 @@ function UI.refresh()
 	setBtnState(tridentBtn, k == "trident")
 end
 
--- Abrir/fechar, posicionar e arrastar o painel
-local panelOpen = false
-local function panelSize()
+-- Abrir/fechar a barra e arrastar o botão flutuante
+local dockOpen = false
+local function layoutDock()
 	local v = viewport()
-	return Vector2.new(math.min(318, v.X - 16), math.min(480, v.Y - 24))
+	dock.Size = UDim2.fromOffset(math.clamp(v.X - 16, 260, 560), 0)
+	ctlScroll.Size = UDim2.new(1, 0, 0, math.clamp(math.floor(v.Y * 0.3), 96, 170))
 end
-local function placePanel()
-	local ps = panelSize()
-	local v = viewport()
-	panel.Size = UDim2.fromOffset(ps.X, ps.Y)
-	local fx, fy = float.Position.X.Offset, float.Position.Y.Offset
-	local x = math.clamp(fx + 56 - ps.X, 8, v.X - ps.X - 8)
-	local y
-	if fy + 62 + ps.Y <= v.Y - 8 then
-		y = fy + 62
-	else
-		y = math.clamp(fy - ps.Y - 6, 8, v.Y - ps.Y - 8)
-	end
-	panel.Position = UDim2.fromOffset(x, y)
-end
-local function setPanel(open)
-	panelOpen = open
+local function setDock(open)
+	dockOpen = open
 	if open then
-		placePanel()
-		panel.Visible = true
-		tw(panel, 0.25, { GroupTransparency = 0 })
-		tw(panelScale, 0.25, { Scale = 1 }, Enum.EasingStyle.Back)
+		layoutDock()
+		dock.Visible = true
+		dock.Position = UDim2.new(0.5, 0, 1, 340)
+		tw(dock, 0.28, { Position = UDim2.new(0.5, 0, 1, -10) }, Enum.EasingStyle.Back)
 		UI.refresh()
 	else
-		tw(panel, 0.2, { GroupTransparency = 1 })
-		tw(panelScale, 0.2, { Scale = 0.9 })
-		task.delay(0.22, function()
-			if not panelOpen and panel.Parent then
-				panel.Visible = false
+		tw(dock, 0.22, { Position = UDim2.new(0.5, 0, 1, 340) })
+		task.delay(0.24, function()
+			if not dockOpen and dock.Parent then
+				dock.Visible = false
+				UI.refresh()
 			end
 		end)
 	end
 end
 closeBtn.Activated:Connect(function()
-	setPanel(false)
+	setDock(false)
 end)
 
 local dragging, dragInput, dragStart, startPos, dragged = false, nil, nil, nil, false
@@ -2589,7 +2906,7 @@ float.InputBegan:Connect(function(input)
 				c:Disconnect()
 				dragging = false
 				if not dragged then
-					setPanel(not panelOpen)
+					setDock(not dockOpen)
 				end
 			end
 		end)
@@ -2608,24 +2925,18 @@ connections:Give(UserInputService.InputChanged:Connect(function(input)
 		end
 		if dragged then
 			local v = viewport()
-			local nx = math.clamp(startPos.X + delta.X, 4, v.X - 60)
-			local ny = math.clamp(startPos.Y + delta.Y, 4, v.Y - 60)
-			float.Position = UDim2.fromOffset(nx, ny)
-			if panelOpen then
-				placePanel()
-			end
+			float.Position = UDim2.fromOffset(math.clamp(startPos.X + delta.X, 4, v.X - 60), math.clamp(startPos.Y + delta.Y, 4, v.Y - 60))
 		end
 	end
 end))
+connections:Give(gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+	layoutDock()
+	local v = viewport()
+	float.Position = UDim2.fromOffset(math.clamp(float.Position.X.Offset, 4, v.X - 60), math.clamp(float.Position.Y.Offset, 4, v.Y - 60))
+end))
 
--- Lista de jogadores dinâmica
-for _, p in ipairs(Players:GetPlayers()) do
-	addRow(p)
-end
-emptyLbl.Visible = next(rows) == nil
-connections:Give(Players.PlayerAdded:Connect(addRow))
+-- Jogador que sai: limpa o alvo
 connections:Give(Players.PlayerRemoving:Connect(function(p)
-	removeRow(p)
 	if Target.player == p then
 		Target.set(nil)
 	end
